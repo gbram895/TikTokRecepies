@@ -1,14 +1,22 @@
 import os
 import tempfile
+from dataclasses import dataclass
 
 import yt_dlp
 
 
-def download_audio(tiktok_url: str) -> str:
-    """Download a TikTok video's audio track and return the path to the audio file.
+@dataclass
+class DownloadedVideo:
+    audio_path: str
+    title: str
+    description: str
 
-    Caller is responsible for deleting the returned file (and its parent
-    temp directory) once done with it.
+
+def download_audio(tiktok_url: str) -> DownloadedVideo:
+    """Download a TikTok video's audio track and grab its title/caption.
+
+    Caller is responsible for deleting the returned audio file (and its
+    parent temp directory) once done with it.
     """
     out_dir = tempfile.mkdtemp(prefix="tiktok_")
     out_template = os.path.join(out_dir, "%(id)s.%(ext)s")
@@ -36,4 +44,9 @@ def download_audio(tiktok_url: str) -> str:
     audio_path = os.path.join(out_dir, f"{video_id}.mp3")
     if not os.path.exists(audio_path):
         raise RuntimeError("Downloaded the video but could not extract its audio track.")
-    return audio_path
+
+    return DownloadedVideo(
+        audio_path=audio_path,
+        title=info.get("title") or "",
+        description=info.get("description") or "",
+    )

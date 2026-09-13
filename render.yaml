@@ -8,10 +8,6 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: ANTHROPIC_MODEL
-        value: claude-sonnet-5
       - key: WHISPER_MODEL_SIZE
         value: base
       - key: DATABASE_URL

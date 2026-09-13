@@ -8,8 +8,6 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./app.db"
     secret_key: str = "dev-secret-change-me"
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-5"
     whisper_model_size: str = "base"
 
     @property

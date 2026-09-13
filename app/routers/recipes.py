@@ -61,11 +61,17 @@ def transcribe(request: Request, tiktok_url: str = Form(...), db: Session = Depe
     audio_path = None
     transcript = None
     try:
-        audio_path = download_audio(tiktok_url)
+        video = download_audio(tiktok_url)
+        audio_path = video.audio_path
         transcript = transcribe_audio(audio_path)
-        if not transcript:
-            raise ValueError("Couldn't detect any speech in that video.")
-        data = extract_recipe(transcript)
+        data = extract_recipe(
+            transcript, description=video.description, video_title=video.title
+        )
+        if not data["ingredients"] and not data["steps"]:
+            raise ValueError(
+                "Couldn't find a recipe in that video's narration or caption. "
+                "Try a video with a clearer voiceover or a written ingredient list."
+            )
     except Exception as exc:  # noqa: BLE001 - surfaced to the user below
         logger.exception("Failed to process TikTok URL %s", tiktok_url)
         return templates.TemplateResponse(
