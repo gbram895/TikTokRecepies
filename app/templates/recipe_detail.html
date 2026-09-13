@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="recipe">
+  <a href="/dashboard" class="back-link">&larr; Back to dashboard</a>
+  <h1>{{ recipe.title }}</h1>
+  <p class="muted">
+    {% if recipe.servings %}Serves {{ recipe.servings }} &middot; {% endif %}
+    {% if recipe.total_time %}{{ recipe.total_time }} &middot; {% endif %}
+    <a href="{{ recipe.tiktok_url }}" target="_blank" rel="noopener">Original TikTok</a>
+  </p>
+
+  <h2>Ingredients</h2>
+  {% if recipe.ingredients %}
+    <ul>
+      {% for item in recipe.ingredients %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No ingredients were detected.</p>
+  {% endif %}
+
+  <h2>Steps</h2>
+  {% if recipe.steps %}
+    <ol>
+      {% for step in recipe.steps %}
+        <li>{{ step }}</li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted">No steps were detected.</p>
+  {% endif %}
+
+  {% if recipe.transcript %}
+    <details>
+      <summary>Original transcript</summary>
+      <p>{{ recipe.transcript }}</p>
+    </details>
+  {% endif %}
+
+  <form method="post" action="/recipe/{{ recipe.id }}/delete" onsubmit="return confirm('Delete this recipe?');">
+    <button type="submit" class="danger">Delete recipe</button>
+  </form>
+</section>
+{% endblock %}
