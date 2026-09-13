@@ -1,5 +1,6 @@
 import logging
 import os
+import resource
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.auth import get_optional_user
+from app.config import settings
 from app.database import get_db
 from app.services.ocr import extract_onscreen_text
 from app.services.recipe_extractor import extract_recipe
@@ -17,6 +19,15 @@ from app.services.transcription import transcribe_audio
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
+
+
+def _log_memory(stage: str) -> None:
+    # ru_maxrss is peak resident memory since process start (KB on Linux) --
+    # not a per-stage delta, but logging it after each stage of a
+    # memory-sensitive pipeline shows which stage first pushes it up, which
+    # is exactly what you want when chasing an OOM on a capped instance.
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    logger.info("peak RSS after %s: %.1f MB", stage, peak_mb)
 
 
 @router.get("/")
@@ -64,8 +75,16 @@ def transcribe(request: Request, tiktok_url: str = Form(...), db: Session = Depe
     try:
         video = download_video(tiktok_url)
         video_path = video.video_path
+        _log_memory("download")
+
         transcript = transcribe_audio(video_path)
-        onscreen_text = extract_onscreen_text(video_path, duration=video.duration)
+        _log_memory("transcription")
+
+        onscreen_text = ""
+        if settings.enable_ocr:
+            onscreen_text = extract_onscreen_text(video_path, duration=video.duration)
+            _log_memory("ocr")
+
         data = extract_recipe(
             transcript,
             description=video.description,

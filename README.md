@@ -105,16 +105,25 @@ Notes / tuning:
   down when idle, so several things here are deliberately tuned to fit
   that ceiling: `WHISPER_MODEL_SIZE` defaults to `tiny` (smallest model),
   downloaded video is capped at 480p, Whisper runs single-threaded
-  (`cpu_threads=1`), and OCR only samples 8 frames. If you still see
-  "exceeded its memory limit" restarts in the Render dashboard, that's the
-  free plan's hard ceiling, not a bug — the fix is either accepting `tiny`
-  model accuracy or upgrading the web service to a paid plan with more RAM
-  (in `render.yaml` or the dashboard). Expect slower cold starts and
-  transcriptions either way on free (well under a minute of audio is fine).
-- `WHISPER_MODEL_SIZE` can be bumped to `base`/`small`/`medium` for better
-  accuracy in the service's environment variables, but each step up
-  roughly doubles memory use — only go past `tiny` if you've also sized up
-  the plan.
+  (`cpu_threads=1`), and **`ENABLE_OCR` is set to `false`** on the free
+  blueprint. On-screen text OCR (`app/services/ocr.py`) spawns an `ffmpeg`
+  frame-extraction subprocess and a `tesseract` subprocess per video on top
+  of the already-resident Whisper model, and that combination is what was
+  pushing the service over 512MB and getting restarted ("exceeded its
+  memory limit" in the Render dashboard). With OCR off you lose on-screen
+  text reading but keep narration + caption parsing, which is enough to
+  run reliably on the free plan.
+  - The service logs peak memory (`peak RSS after <stage>: ... MB`) after
+    download, transcription, and OCR (when enabled) — check the Render
+    **Logs** tab if you hit the memory limit again, it'll show which stage
+    tipped it over.
+  - To get OCR back, set `ENABLE_OCR=true` in the service's environment
+    variables **and** upgrade the web service to a plan with more RAM
+    (in `render.yaml` or the dashboard) — turning it on without more RAM
+    will very likely reproduce the crash.
+  - `WHISPER_MODEL_SIZE` can similarly be bumped to `base`/`small`/`medium`
+    for better accuracy, but each step up roughly doubles memory use —
+    only go past `tiny` alongside a bigger plan too.
 - The Render free Postgres plan expires after 90 days of inactivity-free
   use per Render's current policy &mdash; fine to start with, upgrade later
   if this becomes a real product.
@@ -125,11 +134,14 @@ Notes / tuning:
   upgrading `yt-dlp` (`pip install -U yt-dlp`) is usually the fix.
 - Recipe extraction is heuristic, not AI-based (see "Accuracy tradeoff"
   above) — it does best on videos with clear spoken quantities, on-screen
-  text, or a written ingredient list in the caption; free-form rambling
-  narration with no explicit measurements and no visible text may come
-  back thin.
-- OCR samples ~12 frames spread across the video, not every frame, so a
-  very fast-cut recipe card that's only on screen for a fraction of a
+  text (when `ENABLE_OCR=true`), or a written ingredient list in the
+  caption; free-form rambling narration with no explicit measurements and
+  no visible text may come back thin.
+- On the free Render plan, `ENABLE_OCR` is off (see "Deploying to Render"
+  above), so on-screen text cards without matching narration/caption won't
+  be picked up unless you enable OCR and size up the plan.
+- OCR (when enabled) samples ~8 frames spread across the video, not every
+  frame, so a very fast-cut recipe card on screen for only a fraction of a
   second between samples can be missed.
 - Processing happens synchronously on the request (no background job
   queue), so the "Transcribe recipe" button can take 10-60 seconds
