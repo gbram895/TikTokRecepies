@@ -1,12 +1,13 @@
-"""Turn a transcript + caption into a structured recipe using plain text
-heuristics (regex/keyword matching) only -- no paid AI API calls, no
-network access, runs instantly and for free.
+"""Turn a transcript + caption + on-screen text into a structured recipe
+using plain text heuristics (regex/keyword matching) only -- no paid AI API
+calls, no network access, runs instantly and for free.
 
 It won't be as sharp as an LLM on messy narration, but it works well when
-the video either (a) has a clearly-spoken ingredient list ("two cups of
+the video has any of: (a) a clearly-spoken ingredient list ("two cups of
 flour", "a pinch of salt") and imperative steps ("preheat the oven", "mix
-it together"), or (b) has a caption that already spells out an
-Ingredients:/Instructions: list, which a lot of recipe TikToks do.
+it together"), (b) a caption that spells out an Ingredients:/Instructions:
+list, or (c) on-screen text cards showing the recipe -- very common on
+TikTok, especially on videos with little or no narration.
 """
 
 import re
@@ -107,6 +108,15 @@ def _capitalize(clause: str) -> str:
     return clause[:1].upper() + clause[1:] if clause else clause
 
 
+def _dedup(items: list[str]) -> list[str]:
+    seen: dict[str, str] = {}
+    for item in items:
+        key = item.strip().lower()
+        if key and key not in seen:
+            seen[key] = item.strip()
+    return list(seen.values())
+
+
 def _parse_sectioned(text: str) -> tuple[list[str], list[str]]:
     """Pull explicit "Ingredients:" / "Instructions:" sections out of a
     TikTok caption, when the creator already wrote the recipe out."""
@@ -172,15 +182,27 @@ def _guess_title(transcript: str, video_title: str) -> str:
     return "Recipe from TikTok"
 
 
-def extract_recipe(transcript: str, description: str = "", video_title: str = "") -> dict:
+def extract_recipe(
+    transcript: str,
+    description: str = "",
+    video_title: str = "",
+    onscreen_text: str = "",
+) -> dict:
     """Build {"title", "servings", "total_time", "ingredients", "steps"}
-    from a spoken-word transcript and/or the video's caption, using only
-    regex/keyword heuristics."""
-    sect_ingredients, sect_steps = _parse_sectioned(description or "")
+    from a spoken-word transcript, the video's caption, and OCR'd on-screen
+    text, using only regex/keyword heuristics."""
+    desc_ingredients, desc_steps = _parse_sectioned(description or "")
+    ocr_ingredients, ocr_steps = _parse_sectioned(onscreen_text or "")
+    sect_ingredients = _dedup(desc_ingredients + ocr_ingredients)
+    sect_steps = _dedup(desc_steps + ocr_steps)
 
     transcript = _clean(transcript)
     description = _clean(description)
-    combined = f"{description} {transcript}".strip()
+    # OCR text has no punctuation between overlay lines -- turn each line
+    # break into a sentence boundary so clause-splitting doesn't mash
+    # unrelated on-screen text cards into one giant "step".
+    onscreen_flat = _clean(re.sub(r'\n+', '. ', onscreen_text or ''))
+    combined = f"{description} {onscreen_flat} {transcript}".strip()
 
     ingredients = sect_ingredients or _extract_ingredient_phrases(combined)
     steps = sect_steps or _extract_steps(combined)

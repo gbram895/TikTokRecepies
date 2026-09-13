@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 from app import models
 from app.auth import get_optional_user
 from app.database import get_db
+from app.services.ocr import extract_onscreen_text
 from app.services.recipe_extractor import extract_recipe
-from app.services.tiktok_downloader import download_audio
+from app.services.tiktok_downloader import download_video
 from app.services.transcription import transcribe_audio
 
 router = APIRouter()
@@ -58,19 +59,24 @@ def transcribe(request: Request, tiktok_url: str = Form(...), db: Session = Depe
         return RedirectResponse("/login", status_code=303)
 
     tiktok_url = tiktok_url.strip()
-    audio_path = None
+    video_path = None
     transcript = None
     try:
-        video = download_audio(tiktok_url)
-        audio_path = video.audio_path
-        transcript = transcribe_audio(audio_path)
+        video = download_video(tiktok_url)
+        video_path = video.video_path
+        transcript = transcribe_audio(video_path)
+        onscreen_text = extract_onscreen_text(video_path, duration=video.duration)
         data = extract_recipe(
-            transcript, description=video.description, video_title=video.title
+            transcript,
+            description=video.description,
+            video_title=video.title,
+            onscreen_text=onscreen_text,
         )
         if not data["ingredients"] and not data["steps"]:
             raise ValueError(
-                "Couldn't find a recipe in that video's narration or caption. "
-                "Try a video with a clearer voiceover or a written ingredient list."
+                "Couldn't find a recipe in that video's narration, caption, or "
+                "on-screen text. Try a video that speaks or shows the recipe "
+                "more explicitly."
             )
     except Exception as exc:  # noqa: BLE001 - surfaced to the user below
         logger.exception("Failed to process TikTok URL %s", tiktok_url)
@@ -85,10 +91,10 @@ def transcribe(request: Request, tiktok_url: str = Form(...), db: Session = Depe
             status_code=400,
         )
     finally:
-        if audio_path and os.path.exists(audio_path):
+        if video_path and os.path.exists(video_path):
             try:
-                os.remove(audio_path)
-                os.rmdir(os.path.dirname(audio_path))
+                os.remove(video_path)
+                os.rmdir(os.path.dirname(video_path))
             except OSError:
                 pass
 

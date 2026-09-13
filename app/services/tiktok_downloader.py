@@ -7,30 +7,29 @@ import yt_dlp
 
 @dataclass
 class DownloadedVideo:
-    audio_path: str
+    video_path: str
     title: str
     description: str
+    duration: float | None
 
 
-def download_audio(tiktok_url: str) -> DownloadedVideo:
-    """Download a TikTok video's audio track and grab its title/caption.
+def download_video(tiktok_url: str) -> DownloadedVideo:
+    """Download a TikTok video (video+audio muxed) and grab its title/caption.
 
-    Caller is responsible for deleting the returned audio file (and its
+    We keep the actual video file (rather than extracting audio-only) because
+    the recipe extractor also OCRs a few frames for on-screen text overlays
+    (ingredient cards, step captions) that a lot of recipe TikToks rely on
+    instead of, or in addition to, narration.
+
+    Caller is responsible for deleting the returned video file (and its
     parent temp directory) once done with it.
     """
     out_dir = tempfile.mkdtemp(prefix="tiktok_")
     out_template = os.path.join(out_dir, "%(id)s.%(ext)s")
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "mp4/best",
         "outtmpl": out_template,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
@@ -39,14 +38,14 @@ def download_audio(tiktok_url: str) -> DownloadedVideo:
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(tiktok_url, download=True)
-        video_id = info["id"]
+        video_path = ydl.prepare_filename(info)
 
-    audio_path = os.path.join(out_dir, f"{video_id}.mp3")
-    if not os.path.exists(audio_path):
-        raise RuntimeError("Downloaded the video but could not extract its audio track.")
+    if not os.path.exists(video_path):
+        raise RuntimeError("Couldn't download that TikTok video.")
 
     return DownloadedVideo(
-        audio_path=audio_path,
+        video_path=video_path,
         title=info.get("title") or "",
         description=info.get("description") or "",
+        duration=info.get("duration"),
     )
