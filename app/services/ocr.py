@@ -12,9 +12,9 @@ import tempfile
 import pytesseract
 from PIL import Image
 
-_MAX_FRAMES = 12
+_MAX_FRAMES = 8
 _MIN_INTERVAL_SECONDS = 1.0
-_DEFAULT_DURATION = 18.0  # assume ~18s of interesting content if unknown
+_DEFAULT_DURATION = 16.0  # assume ~16s of interesting content if unknown
 
 
 def extract_onscreen_text(video_path: str, duration: float | None = None) -> str:
@@ -27,7 +27,7 @@ def extract_onscreen_text(video_path: str, duration: float | None = None) -> str
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", video_path,
-                "-vf", f"fps=1/{interval},scale='min(720,iw)':-2",
+                "-vf", f"fps=1/{interval},scale='min(540,iw)':-2",
                 "-frames:v", str(_MAX_FRAMES),
                 "-qscale:v", "4",
                 frame_pattern,

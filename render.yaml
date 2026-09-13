@@ -9,7 +9,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: WHISPER_MODEL_SIZE
-        value: base
+        value: tiny
       - key: DATABASE_URL
         fromDatabase:
           name: tiktok-recipe-db

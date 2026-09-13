@@ -28,7 +28,11 @@ def download_video(tiktok_url: str) -> DownloadedVideo:
     out_template = os.path.join(out_dir, "%(id)s.%(ext)s")
 
     ydl_opts = {
-        "format": "mp4/best",
+        # Recipe text (spoken or on-screen) is legible well below TikTok's
+        # native 1080p -- capping resolution keeps ffmpeg/OCR frame decoding
+        # from spiking memory on constrained instances (e.g. Render's free
+        # 512MB plan) for no accuracy benefit.
+        "format": "best[height<=480]/best",
         "outtmpl": out_template,
         "quiet": True,
         "no_warnings": True,

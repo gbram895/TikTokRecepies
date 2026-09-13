@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./app.db"
     secret_key: str = "dev-secret-change-me"
-    whisper_model_size: str = "base"
+    whisper_model_size: str = "tiny"
 
     @property
     def sqlalchemy_database_url(self) -> str:

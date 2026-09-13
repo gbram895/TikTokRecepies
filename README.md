@@ -101,15 +101,20 @@ Steps:
 Notes / tuning:
 
 - The blueprint uses Render's **free** web + database plans, so this can
-  run at $0/month. Whisper transcription is CPU-bound and free-tier
-  instances have limited RAM/CPU and spin down when idle, so expect slower
-  cold starts and transcriptions (well under a minute of audio is fine).
-  Upgrade the web service to the `starter` plan in `render.yaml` (or in the
-  dashboard) if you want consistent performance — that's the only paid
-  piece in this whole stack, and it's optional.
-- `WHISPER_MODEL_SIZE` defaults to `base` (good speed/accuracy tradeoff for
-  short-form video). Bump it to `small` or `medium` for better accuracy at
-  the cost of speed/memory, in the service's environment variables.
+  run at $0/month. Free-tier instances are capped at 512MB RAM and spin
+  down when idle, so several things here are deliberately tuned to fit
+  that ceiling: `WHISPER_MODEL_SIZE` defaults to `tiny` (smallest model),
+  downloaded video is capped at 480p, Whisper runs single-threaded
+  (`cpu_threads=1`), and OCR only samples 8 frames. If you still see
+  "exceeded its memory limit" restarts in the Render dashboard, that's the
+  free plan's hard ceiling, not a bug — the fix is either accepting `tiny`
+  model accuracy or upgrading the web service to a paid plan with more RAM
+  (in `render.yaml` or the dashboard). Expect slower cold starts and
+  transcriptions either way on free (well under a minute of audio is fine).
+- `WHISPER_MODEL_SIZE` can be bumped to `base`/`small`/`medium` for better
+  accuracy in the service's environment variables, but each step up
+  roughly doubles memory use — only go past `tiny` if you've also sized up
+  the plan.
 - The Render free Postgres plan expires after 90 days of inactivity-free
   use per Render's current policy &mdash; fine to start with, upgrade later
   if this becomes a real product.

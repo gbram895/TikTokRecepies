@@ -16,7 +16,16 @@ _MIN_AVG_LOGPROB = -1.0
 
 @lru_cache(maxsize=1)
 def get_model() -> WhisperModel:
-    return WhisperModel(settings.whisper_model_size, device="cpu", compute_type="int8")
+    # cpu_threads/num_workers=1 keeps CTranslate2's per-thread buffers to a
+    # minimum -- on a memory-capped instance (e.g. Render's free 512MB
+    # plan) that headroom matters more than the small speed loss.
+    return WhisperModel(
+        settings.whisper_model_size,
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=1,
+        num_workers=1,
+    )
 
 
 def transcribe_audio(media_path: str) -> str:
