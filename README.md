@@ -77,14 +77,94 @@ uvicorn app.main:app --reload
 Visit http://localhost:8000. Local dev defaults to a SQLite file
 (`app.db`) so there's no database to set up.
 
-## Deploying to an Oracle Cloud free VM
+## Deploying to Fly.io
 
-Oracle Cloud's **Always Free** tier includes an Ampere A1 (ARM) VM with up
-to 4 OCPUs / 24GB RAM, free forever — genuinely enough headroom to run the
-full pipeline (Whisper + OCR) with room to spare, unlike a memory-capped
-free web-service plan. This repo includes `docker-compose.yml` + a
-`Caddyfile` that run the app, Postgres, and an HTTPS reverse proxy as three
-containers on that VM.
+Fly.io runs the existing `Dockerfile` directly as a "Fly Machine" — a
+Firecracker microVM that boots in under a second. Signup is just
+email + a card (no lengthy identity verification like Oracle's), and kept
+always-on (see below) there's no cold-start delay at all. Cost is small
+but not zero: a 2GB machine plus the smallest Postgres tier runs roughly
+$10-15/month — check [fly.io/pricing](https://fly.io/pricing) for current
+rates.
+
+### 1. Install flyctl and sign up
+
+```bash
+curl -L https://fly.io/install.sh | sh
+# follow the printed instructions to add flyctl to your PATH, then:
+fly auth signup
+```
+
+### 2. Launch the app (without deploying yet)
+
+From your local clone of this repo:
+
+```bash
+fly launch --no-deploy
+```
+
+You'll be prompted for a few things:
+- **App name** — must be globally unique; accept the suggestion or pick
+  your own.
+- **Region** — pick whatever's closest to you.
+- **Postgres database?** — say **yes**, choose the smallest/"Development"
+  single-node size.
+- **Redis?** — say **no** (not used).
+- If asked about an existing `.dockerignore`/`Caddyfile`/`docker-compose.yml`
+  in the repo, keep them as-is (`docker-compose.yml`/`Caddyfile` are for
+  the Oracle Cloud alternative below and Fly.io ignores them).
+
+This generates a `fly.toml` and creates a Postgres cluster wired up to the
+app via a `DATABASE_URL` secret, but doesn't deploy yet.
+
+### 3. Edit fly.toml, then set the remaining secrets
+
+Open the generated `fly.toml` and:
+- Under `[http_service]`, set `min_machines_running = 1` — this keeps one
+  machine always running instead of scaling to zero, which is what gives
+  you zero cold-start delay.
+- Add (or edit) a `[[vm]]` block for at least 2GB of RAM, e.g.:
+  ```toml
+  [[vm]]
+    size = "shared-cpu-1x"
+    memory = "2gb"
+  ```
+- Under `[env]`, add:
+  ```toml
+  WHISPER_MODEL_SIZE = "small"
+  ENABLE_OCR = "true"
+  ```
+
+Then set `SECRET_KEY` (not something to put in `fly.toml`, which gets
+committed to git):
+
+```bash
+fly secrets set SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+```
+
+### 4. Deploy
+
+```bash
+fly deploy
+fly open
+```
+
+`fly open` prints/opens `https://<your-app-name>.fly.dev` — HTTPS is
+automatic, no domain or cert setup needed.
+
+If you ever see memory issues, `fly logs` shows the same
+peak-memory-per-stage logging described above, and `fly scale vm
+shared-cpu-1x --memory 4096` bumps the machine to 4GB.
+
+## Alternative: Oracle Cloud free VM
+
+If Oracle's signup works for you, this option is genuinely free forever
+(vs. Fly.io's small monthly cost) and has even more RAM headroom — their
+**Always Free** tier includes an Ampere A1 (ARM) VM with up to 4 OCPUs /
+24GB RAM, enough to run the full pipeline (Whisper + OCR) with room to
+spare. This repo includes `docker-compose.yml` + a `Caddyfile` that run
+the app, Postgres, and an HTTPS reverse proxy as three containers on that
+VM.
 
 ### 1. Create the VM
 
@@ -151,7 +231,7 @@ certificate automatically from there. No domain yet? Leave `Caddyfile` as
 `:80` and the app is reachable over plain HTTP at `http://<VM_PUBLIC_IP>`
 in the meantime.
 
-### Why this is faster than the earlier Render setup
+### Why this (and Fly.io above) beats the earlier Render setup
 
 - No memory ceiling to work around: `.env.example` defaults to
   `WHISPER_MODEL_SIZE=small` (noticeably more accurate than `tiny`) with
@@ -163,12 +243,12 @@ in the meantime.
 - `docker compose logs -f app` shows the same peak-memory-per-stage logging
   described above, if you ever want to check headroom.
 
-### Alternative: Render
+## Alternative: Render
 
 `render.yaml` is still in the repo if you'd rather use Render — see the
 git history for the tuning notes that were needed to fit its free 512MB
-plan (smaller Whisper model, capped video resolution, OCR disabled). The
-Oracle Cloud VM above avoids all of that by simply having enough RAM.
+plan (smaller Whisper model, capped video resolution, OCR disabled). Both
+options above avoid all of that by simply having enough RAM.
 
 ## Limitations (MVP)
 
