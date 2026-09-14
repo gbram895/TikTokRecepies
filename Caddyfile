@@ -1,0 +1,16 @@
+# Reverse proxy in front of the app, with automatic HTTPS (Let's Encrypt).
+#
+# If you have a domain: point its A record at the VM's public IP, then
+# replace the line below with your domain, e.g.:
+#
+#   recipes.example.com {
+#       reverse_proxy app:10000
+#   }
+#
+# If you don't have a domain yet, leave this as :80 -- the app will be
+# reachable over plain HTTP at the VM's public IP (fine to get started;
+# swap in a domain later for HTTPS, no other changes needed).
+
+:80 {
+	reverse_proxy app:10000
+}

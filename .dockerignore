@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+*.db
+__pycache__
+**/__pycache__
+*.pyc
+.venv
+venv
+README.md
+render.yaml
+docker-compose.yml
+Caddyfile

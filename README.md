@@ -77,56 +77,98 @@ uvicorn app.main:app --reload
 Visit http://localhost:8000. Local dev defaults to a SQLite file
 (`app.db`) so there's no database to set up.
 
-## Deploying to Render
+## Deploying to an Oracle Cloud free VM
 
-This repo includes a `render.yaml` Blueprint that provisions:
+Oracle Cloud's **Always Free** tier includes an Ampere A1 (ARM) VM with up
+to 4 OCPUs / 24GB RAM, free forever — genuinely enough headroom to run the
+full pipeline (Whisper + OCR) with room to spare, unlike a memory-capped
+free web-service plan. This repo includes `docker-compose.yml` + a
+`Caddyfile` that run the app, Postgres, and an HTTPS reverse proxy as three
+containers on that VM.
 
-- a **web service** (built from the included `Dockerfile`, which installs
-  `ffmpeg` and `tesseract-ocr` so audio extraction, transcription, and
-  on-screen text OCR all work), and
-- a **Postgres database**, wired up to the web service automatically via
-  `DATABASE_URL`.
+### 1. Create the VM
 
-Steps:
+1. Sign up at [cloud.oracle.com](https://cloud.oracle.com) (free; a card is
+   required for identity verification but Always Free resources aren't
+   billed).
+2. **Compute → Instances → Create Instance**.
+3. Under **Image and shape**: pick **Ubuntu 22.04** (or newer), and change
+   the shape to **VM.Standard.A1.Flex** (Ampere/ARM, Always Free eligible)
+   — set it to e.g. 2 OCPU / 12GB or the full 4 OCPU / 24GB.
+4. Under **Networking**, either use the default VCN or create one; note the
+   instance will get a public IP (assign a **reserved/static** public IP if
+   offered, so it doesn't change on restart).
+5. Add your SSH public key (or let Oracle generate a key pair for you and
+   download it).
+6. Create the instance. Note its public IP once it's running.
 
-1. Push this repo to GitHub.
-2. In the Render dashboard: **New +** &rarr; **Blueprint**, point it at this
-   repo.
-3. Render reads `render.yaml`, creates both services, and auto-generates
-   `SECRET_KEY` for you. No other secrets/API keys are needed.
-4. Deploy. First boot will take a little longer than usual while
-   `faster-whisper` downloads its model weights (a one-time download,
-   cached after that).
+### 2. Open ports 80/443
 
-Notes / tuning:
+Two firewalls need opening — Oracle's cloud-level one and the VM's own:
 
-- The blueprint uses Render's **free** web + database plans, so this can
-  run at $0/month. Free-tier instances are capped at 512MB RAM and spin
-  down when idle, so several things here are deliberately tuned to fit
-  that ceiling: `WHISPER_MODEL_SIZE` defaults to `tiny` (smallest model),
-  downloaded video is capped at 480p, Whisper runs single-threaded
-  (`cpu_threads=1`), and **`ENABLE_OCR` is set to `false`** on the free
-  blueprint. On-screen text OCR (`app/services/ocr.py`) spawns an `ffmpeg`
-  frame-extraction subprocess and a `tesseract` subprocess per video on top
-  of the already-resident Whisper model, and that combination is what was
-  pushing the service over 512MB and getting restarted ("exceeded its
-  memory limit" in the Render dashboard). With OCR off you lose on-screen
-  text reading but keep narration + caption parsing, which is enough to
-  run reliably on the free plan.
-  - The service logs peak memory (`peak RSS after <stage>: ... MB`) after
-    download, transcription, and OCR (when enabled) — check the Render
-    **Logs** tab if you hit the memory limit again, it'll show which stage
-    tipped it over.
-  - To get OCR back, set `ENABLE_OCR=true` in the service's environment
-    variables **and** upgrade the web service to a plan with more RAM
-    (in `render.yaml` or the dashboard) — turning it on without more RAM
-    will very likely reproduce the crash.
-  - `WHISPER_MODEL_SIZE` can similarly be bumped to `base`/`small`/`medium`
-    for better accuracy, but each step up roughly doubles memory use —
-    only go past `tiny` alongside a bigger plan too.
-- The Render free Postgres plan expires after 90 days of inactivity-free
-  use per Render's current policy &mdash; fine to start with, upgrade later
-  if this becomes a real product.
+- **Cloud level**: your VCN's default **Security List** (Networking →
+  Virtual Cloud Networks → your VCN → Security Lists → Default Security
+  List) → **Add Ingress Rules** → source `0.0.0.0/0`, TCP, destination port
+  `80`; repeat for port `443`.
+- **On the VM** (Oracle's Ubuntu images ship with iptables pre-configured
+  to drop unlisted inbound traffic):
+  ```bash
+  sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+  sudo netfilter-persistent save   # or: sudo apt install -y iptables-persistent
+  ```
+
+### 3. Install Docker and deploy
+
+SSH into the VM (`ssh ubuntu@<VM_PUBLIC_IP>`), then:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin git
+sudo usermod -aG docker $USER && newgrp docker
+
+git clone https://github.com/gbram895/TikTokRecepies.git
+cd TikTokRecepies
+
+cp .env.example .env
+nano .env   # set SECRET_KEY and POSTGRES_PASSWORD to real random values
+
+docker compose up -d --build
+```
+
+That's it — `docker compose` builds the app image (installing `ffmpeg` +
+`tesseract-ocr`), starts Postgres, and starts Caddy as a reverse proxy in
+front of the app. `restart: unless-stopped` means all three containers
+come back automatically if the VM reboots (as long as Docker itself is
+enabled at boot: `sudo systemctl enable docker`, on by default after
+installing via apt).
+
+**Get a domain (recommended) for HTTPS:** point a domain's A record at the
+VM's public IP (a free option: [duckdns.org](https://www.duckdns.org)),
+then edit `Caddyfile` — replace `:80` with your domain — and
+`docker compose restart caddy`. Caddy issues and renews a Let's Encrypt
+certificate automatically from there. No domain yet? Leave `Caddyfile` as
+`:80` and the app is reachable over plain HTTP at `http://<VM_PUBLIC_IP>`
+in the meantime.
+
+### Why this is faster than the earlier Render setup
+
+- No memory ceiling to work around: `.env.example` defaults to
+  `WHISPER_MODEL_SIZE=small` (noticeably more accurate than `tiny`) with
+  **`ENABLE_OCR=true`** (on-screen text reading works), both of which had
+  to be dialed back or disabled on Render's free 512MB plan.
+- No cold starts / spin-down: the containers just run continuously (a real
+  VM, not a scale-to-zero web service), so there's no 30-60s wake-up delay
+  on the first request after a quiet period.
+- `docker compose logs -f app` shows the same peak-memory-per-stage logging
+  described above, if you ever want to check headroom.
+
+### Alternative: Render
+
+`render.yaml` is still in the repo if you'd rather use Render — see the
+git history for the tuning notes that were needed to fit its free 512MB
+plan (smaller Whisper model, capped video resolution, OCR disabled). The
+Oracle Cloud VM above avoids all of that by simply having enough RAM.
 
 ## Limitations (MVP)
 
@@ -137,9 +179,9 @@ Notes / tuning:
   text (when `ENABLE_OCR=true`), or a written ingredient list in the
   caption; free-form rambling narration with no explicit measurements and
   no visible text may come back thin.
-- On the free Render plan, `ENABLE_OCR` is off (see "Deploying to Render"
-  above), so on-screen text cards without matching narration/caption won't
-  be picked up unless you enable OCR and size up the plan.
+- On a memory-capped host (e.g. Render's free plan, see "Alternative:
+  Render" above), `ENABLE_OCR` should stay off, so on-screen text cards
+  without matching narration/caption won't be picked up there.
 - OCR (when enabled) samples ~8 frames spread across the video, not every
   frame, so a very fast-cut recipe card on screen for only a fraction of a
   second between samples can be missed.
